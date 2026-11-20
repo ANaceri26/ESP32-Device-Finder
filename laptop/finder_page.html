@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Signal Finder</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--ink:#e8eaed;--dim:#9aa0a6;--acc:#4f8cff;--line:#2a2e37;--ok:#2ecc71;--bad:#e5534b}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+h1{font-size:16px;margin:0 8px 0 0}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--bad)}
+.dot.on{background:var(--ok)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0}
+button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}
+button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+.spacer{flex:1}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;padding:16px;max-width:1300px;margin:0 auto}
+@media (max-width:900px){main{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.dim{color:var(--dim);font-size:12px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 8px}
+.row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.grow{flex:1;min-width:0}
+.nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:6px;background:var(--line);border-radius:3px;margin-top:5px}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--acc)}
+.row.tracked .nm{color:var(--acc);font-weight:600}
+#big{font-size:44px;font-weight:700;line-height:1}
+#trend{font-size:16px;font-weight:600;margin-top:4px}
+.warm{color:#ff8a3d}.cold{color:#58a6ff}
+#grid{display:grid;gap:3px;margin-top:10px}
+#grid div{aspect-ratio:1;border-radius:4px;background:var(--line);display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;color:#fff;text-shadow:0 1px 2px #000}
+#grid div.here{outline:2px solid #fff;outline-offset:-2px}
+label{font-size:12px;color:var(--dim)}
+input,select{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit}
+input[type=number]{width:52px}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.legend{display:flex;align-items:center;gap:8px;margin-top:8px}
+.legend i{flex:1;height:8px;border-radius:4px;background:linear-gradient(90deg,hsl(240,80%,45%),hsl(120,80%,45%),hsl(0,80%,45%))}
+#empty{padding:20px 0;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>Signal Finder</h1>
+  <span class="pill"><span id="dot" class="dot"></span><span id="status">Waiting for ESP…</span></span>
+  <span class="seg"><button id="mBle" onclick="setMode('ble')">Bluetooth</button><button id="mWifi" onclick="setMode('wifi')">Wi-Fi</button></span>
+  <span class="spacer"></span>
+  <button id="bSound" onclick="toggleSound()">Laptop sound: off</button>
+</header>
+<main>
+  <section>
+    <div class="card" id="trackCard" style="display:none">
+      <h2>Tracking</h2>
+      <div id="tname" class="nm" style="font-size:15px;font-weight:600"></div>
+      <div id="tkind" class="dim"></div>
+      <div style="display:flex;align-items:flex-end;gap:16px;margin-top:10px">
+        <div><div id="big">--</div><div class="dim">dBm</div></div>
+        <div class="grow"><div id="trend"></div><div class="bar"><i id="tbar"></i></div><div id="tdist" class="dim" style="margin-top:4px"></div></div>
+      </div>
+      <div style="margin-top:10px"><button onclick="track('')">Stop tracking</button></div>
+    </div>
+    <div class="card">
+      <h2 id="listTitle">Signals</h2>
+      <div id="list"><div id="empty" class="dim">Nothing yet. Make sure the ESP is on and joined your laptop's hotspot.</div></div>
+    </div>
+  </section>
+  <section>
+    <div class="card">
+      <h2>Walk-around heatmap</h2>
+      <div class="controls">
+        <label>Columns <input id="gc" type="number" value="6" min="2" max="14"></label>
+        <label>Rows <input id="gr" type="number" value="4" min="2" max="14"></label>
+        <label>Measure <select id="gm"><option value="t">Tracked signal (dBm)</option><option value="n">Signals nearby (stronger than −70 dBm)</option></select></label>
+        <button onclick="resetGrid()">New map</button>
+        <button onclick="downloadCsv()">Save CSV</button>
+      </div>
+      <div class="dim" style="margin-top:8px">Walk to a spot, click that square. Each click records the signal where you are standing.</div>
+      <div id="grid"></div>
+      <div class="legend"><span class="dim" id="lo">weak</span><i></i><span class="dim" id="hi">strong</span></div>
+    </div>
+  </section>
+</main>
+<script>
+const VENDORS = {76: "Apple", 6: "Microsoft", 117: "Samsung", 224: "Google", 135: "Garmin", 89: "Nordic", 301: "Sony"};
+let S = {connected: false, dev: [], target: "", mode: null};
+let history = [], cells = {}, here = null, lastMode = null, order = [], sortedAt = 0;
+let ac = null, soundOn = false;
+
+const $ = id => document.getElementById(id);
+const closeness = r => Math.max(0, Math.min(1, (r + 95) / 60));         // -95 dBm far .. -35 dBm touching
+const roughMetres = (r, wifi) => Math.pow(10, ((wifi ? -45 : -59) - r) / 25);  // path-loss model, n = 2.5
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+function label(d) { return d[1] || (d[0].startsWith("wifi") ? "(hidden network)" : (VENDORS[d[3]] ? VENDORS[d[3]] + " device" : "(no name)")); }
+function kind(d) {
+  if (d[0].startsWith("wifi")) return "Wi-Fi network · channel " + d[4] + " · " + d[0].slice(5);
+  return "Bluetooth" + (VENDORS[d[3]] ? " · " + VENDORS[d[3]] : "") + " · " + d[0].slice(4);
+}
+async function cmd(c) { try { await fetch("/api/cmd", {method: "POST", body: c}); } catch (e) {} }
+
+function setMode(m) { sortedAt = 0; cmd("mode " + m); }
+function track(id) { history = []; cmd(id ? "track " + id : "track"); }
+function toggleSound() {
+  soundOn = !soundOn;
+  if (soundOn && !ac) ac = new (window.AudioContext || window.webkitAudioContext)();  // browsers need a click first
+  if (ac && ac.state === "suspended") ac.resume();
+  $("bSound").textContent = "Laptop sound: " + (soundOn ? "on" : "off");
+  $("bSound").className = soundOn ? "on" : "";
+}
+
+function beep(freq, ms) {
+  const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+  o.type = "square"; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.12, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + ms / 1000 + 0.02);
+}
+function soundLoop() {
+  let wait = 300;
+  if (soundOn && ac && S.target) {
+    const t = S.dev.find(d => d[0] === S.target);
+    if (t && S.connected && t[5] < 5000) {
+      const c = closeness(t[2]);
+      beep(800 + 2400 * c, 40);
+      wait = 1000 - 930 * c;          // 1000 ms apart when far, 70 ms when touching
+    } else { beep(400, 30); wait = 2000; }  // lost: slow low tick
+  }
+  setTimeout(soundLoop, wait);
+}
+
+async function poll() {
+  try { S = await (await fetch("/api/state")).json(); } catch (e) { S.connected = false; }
+  S.dev = S.dev || [];
+  render();
+}
+function render() {
+  $("dot").className = "dot" + (S.connected ? " on" : "");
+  $("status").textContent = S.connected ? `ESP connected (${S.esp})${S.sim ? " · SIMULATION" : ""}` :
+    (S.packets ? "ESP out of range — walk back toward the laptop" : "Waiting for ESP… (is it on your hotspot?)");
+  $("mBle").className = S.mode === "ble" ? "on" : "";
+  $("mWifi").className = S.mode === "wifi" ? "on" : "";
+  if (S.mode && lastMode && S.mode !== lastMode) resetGrid();
+  lastMode = S.mode || lastMode;
+
+  // Re-sort at most every 2 s so rows don't jump under your mouse while RSSI wobbles
+  if (Date.now() - sortedAt > 2000) { order = [...S.dev].sort((a, b) => b[2] - a[2]).map(d => d[0]); sortedAt = Date.now(); }
+  const rank = id => { const i = order.indexOf(id); return i < 0 ? 1e9 : i; };
+  const ds = [...S.dev].sort((a, b) => rank(a[0]) - rank(b[0]) || b[2] - a[2]);
+  $("listTitle").textContent = (S.mode === "wifi" ? "Wi-Fi networks" : "Bluetooth devices") + ` · ${ds.length} heard · strongest first`;
+  $("list").innerHTML = ds.length ? ds.map(d => `
+    <div class="row${d[0] === S.target ? " tracked" : ""}">
+      <div class="grow"><div class="nm">${esc(label(d))}</div>
+        <div class="dim nm">${esc(kind(d))}</div>
+        <div class="dim">${d[2].toFixed(0)} dBm · ~${roughMetres(d[2], d[0].startsWith("wifi")).toFixed(1)} m</div>
+        <div class="bar"><i style="width:${closeness(d[2]) * 100}%"></i></div></div>
+      <button class="${d[0] === S.target ? "on" : ""}" onclick="track('${d[0] === S.target ? "" : d[0]}')">${d[0] === S.target ? "Tracking" : "Track"}</button>
+    </div>`).join("") : `<div id="empty" class="dim">${S.connected ? "Listening… nothing heard yet." : "Nothing yet. Make sure the ESP is on and joined your laptop's hotspot."}</div>`;
+
+  const t = ds.find(d => d[0] === S.target);
+  $("trackCard").style.display = S.target ? "block" : "none";
+  if (t) {
+    const now = Date.now();
+    history.push([now, t[2]]);
+    history = history.filter(h => now - h[0] < 3000);
+    const past = history.find(h => now - h[0] < 1800) || history[0];
+    const diff = t[2] - past[1];
+    $("tname").textContent = label(t);
+    $("tkind").textContent = kind(t);
+    $("big").textContent = t[2].toFixed(0);
+    $("tbar").style.width = closeness(t[2]) * 100 + "%";
+    $("tdist").textContent = "roughly " + roughMetres(t[2], t[0].startsWith("wifi")).toFixed(1) + " m away (very approximate)";
+    $("trend").innerHTML = diff > 2 ? '<span class="warm">Warmer ▲</span>' : diff < -2 ? '<span class="cold">Colder ▼</span>' : "Steady";
+  } else if (S.target) {
+    $("big").textContent = "--"; $("trend").textContent = "Lost — not heard right now"; $("tbar").style.width = "0";
+  }
+}
+
+function key() { return "cells-" + $("gm").value; }
+function save() { try { localStorage.setItem(key(), JSON.stringify(cells)); } catch (e) {} }
+function load() { try { cells = JSON.parse(localStorage.getItem(key()) || "{}"); } catch (e) { cells = {}; } }
+function resetGrid() { cells = {}; here = null; save(); drawGrid(); }
+function sample() {
+  if ($("gm").value === "n") return S.dev.filter(d => d[2] > -70).length;
+  const t = S.dev.find(d => d[0] === S.target);
+  return t ? t[2] : null;
+}
+function color(v, lo, hi) { const x = hi > lo ? (v - lo) / (hi - lo) : 0.5; return `hsl(${240 - 240 * x},80%,45%)`; }
+function drawGrid() {
+  const c = +$("gc").value, r = +$("gr").value;
+  $("grid").style.gridTemplateColumns = `repeat(${c},1fr)`;
+  const vals = Object.values(cells), lo = Math.min(...vals), hi = Math.max(...vals);
+  let h = "";
+  for (let y = 0; y < r; y++) for (let x = 0; x < c; x++) {
+    const k = x + "," + y, v = cells[k];
+    h += `<div class="${k === here ? "here" : ""}" onclick="mark(${x},${y})" style="${v != null ? "background:" + color(v, lo, hi) : ""}">${v != null ? v.toFixed(0) : ""}</div>`;
+  }
+  $("grid").innerHTML = h;
+  const unit = $("gm").value === "n" ? "" : " dBm";
+  $("lo").textContent = vals.length ? lo.toFixed(0) + unit + " weak" : "weak";
+  $("hi").textContent = vals.length ? hi.toFixed(0) + unit + " strong" : "strong";
+}
+function record(x, y) {
+  const v = sample();
+  if (v == null) { alert("Track a signal first (click Track in the list), or set Measure to Signals nearby."); return; }
+  cells[x + "," + y] = v; here = x + "," + y; save(); drawGrid();
+}
+function mark(x, y) {
+  if (S.sim) {  // simulation: the fake ESP walks to that square first
+    cmd(`walk ${x} ${y} ${$("gc").value} ${$("gr").value}`);
+    here = x + "," + y; drawGrid();
+    setTimeout(() => record(x, y), 1500);
+  } else record(x, y);
+}
+function downloadCsv() {
+  const rows = ["column,row,value"].concat(Object.entries(cells).map(([k, v]) => k + "," + v));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([rows.join("\n")], {type: "text/csv"}));
+  a.download = "signal-heatmap.csv"; a.click();
+}
+$("gc").onchange = $("gr").onchange = drawGrid;
+$("gm").onchange = () => { load(); drawGrid(); };
+
+load(); drawGrid();
+setInterval(poll, 300); poll();
+soundLoop();
+</script>
+</body>
+</html>
